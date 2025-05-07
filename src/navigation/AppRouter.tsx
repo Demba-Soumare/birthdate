@@ -63,6 +63,10 @@ const RedirectIfAuthenticated: React.FC<{ children: React.ReactNode }> = ({ chil
   return <>{children}</>;
 };
 
+const PublicFundraiserRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  return <>{children}</>;
+};
+
 const AppRouter: React.FC = () => {
   return (
     <Router>
@@ -84,6 +88,13 @@ const AppRouter: React.FC = () => {
           <ProtectedRoute>
             <Onboarding />
           </ProtectedRoute>
+        } />
+        
+        {/* Public fundraiser route */}
+        <Route path="/fundraiser/:id/contribute" element={
+          <PublicFundraiserRoute>
+            <FundraiserDetail />
+          </PublicFundraiserRoute>
         } />
         
         {/* Stripe routes */}
@@ -118,4 +129,4 @@ const AppRouter: React.FC = () => {
   );
 };
 
-export default AppRouter
+export default AppRouter;

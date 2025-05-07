@@ -8,7 +8,6 @@ import { EventType } from '../../types';
 import Button from '../../components/Button';
 import { formatDate } from '../../utils/formatDate';
 
-
 const FundraiserDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -20,8 +19,8 @@ const FundraiserDetail: React.FC = () => {
   const [amount, setAmount] = useState<string>('');
   const [message, setMessage] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
-  // Ajouter un état pour le message de chargement Stripe
   const [stripeLoadingMessage, setStripeLoadingMessage] = useState<string | null>(null);
+  const [isSharing, setIsSharing] = useState(false);
   
   useEffect(() => {
     const fetchEvent = async () => {
@@ -48,68 +47,45 @@ const FundraiserDetail: React.FC = () => {
   }, [id]);
 
   const handleShare = async () => {
-    if (!event) return;
+    if (!event || !id) return;
     
     try {
-      await navigator.share({
+      setIsSharing(true);
+      setError(null);
+
+      // Créer une session de paiement avec un montant par défaut
+      const defaultAmount = 5; // Montant par défaut de 5€
+      const { sessionUrl } = await createCheckoutSession(id, defaultAmount);
+      
+      const shareData = {
         title: `Cagnotte pour ${event.title}`,
         text: `Participez à la cagnotte pour ${event.title}`,
-        url: window.location.href
-      });
+        url: sessionUrl // Utiliser directement l'URL de la session Stripe
+      };
+
+      if (navigator.share) {
+        await navigator.share(shareData);
+      } else {
+        await navigator.clipboard.writeText(shareData.url);
+        alert('Lien de paiement copié dans le presse-papier !');
+      }
     } catch (err) {
       console.error('Erreur lors du partage:', err);
+      setError('Impossible de créer le lien de paiement');
+    } finally {
+      setIsSharing(false);
     }
   };
 
   const handleContribute = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!event || !id || !currentUser) return;
+    if (!event || !id) return;
 
-    // 1. Vérifier si l'utilisateur a un compte Stripe Connect
-    if (!currentUser.stripeAccountId) {
-      console.log('Compte Stripe Connect manquant. Redirection pour création/liaison...');
-      setIsProcessing(true); // Utiliser l'état existant pour désactiver le bouton
-      setStripeLoadingMessage('Redirection vers Stripe pour la configuration...'); // Message spécifique
-      setError(null); // Réinitialiser les erreurs précédentes
-
-      try {
-        // Vérifier que l'utilisateur et son email existent
-        if (!currentUser?.uid || !currentUser?.email) {
-          throw new Error('Informations utilisateur manquantes pour créer le compte Stripe.');
-        }
-        
-        // 2. Appeler la fonction pour obtenir le lien d'onboarding avec userId et email
-        const { accountLink } = await createStripeConnectAccount(currentUser.uid, currentUser.email);
-
-        // 3. Rediriger vers Stripe
-        if (accountLink) {
-          window.location.href = accountLink;
-          // La redirection a lieu, pas besoin de réinitialiser l'état ici
-        } else {
-          console.error("L'URL de redirection Stripe n'a pas été reçue.");
-          setError("Erreur lors de la récupération du lien Stripe.");
-          setStripeLoadingMessage(null); // Effacer le message spécifique
-          setIsProcessing(false); // Réactiver le bouton en cas d'erreur
-        }
-      } catch (err) {
-        console.error('Erreur lors de la création/récupération du lien Stripe Connect:', err);
-        // Afficher l'erreur spécifique si elle existe, sinon un message générique
-        const errorMessage = err instanceof Error ? err.message : 'Impossible de configurer le compte de paiement. Veuillez réessayer.';
-        setError(errorMessage);
-        setStripeLoadingMessage(null); // Effacer le message spécifique
-        setIsProcessing(false); // Réactiver le bouton en cas d'erreur
-      }
-      return; // Arrêter l'exécution ici si la redirection est nécessaire
-    }
-
-    // --- Si l'utilisateur a un stripeAccountId, continuer comme avant ---
-    console.log('Compte Stripe Connect trouvé. Procéder au paiement...');
     try {
       setIsProcessing(true);
-      setStripeLoadingMessage(null); // S'assurer que le message Stripe est effacé
+      setStripeLoadingMessage(null);
       setError(null);
 
-      // Validation
       if (!amount) {
         setError('Veuillez entrer un montant');
         return;
@@ -121,16 +97,23 @@ const FundraiserDetail: React.FC = () => {
         return;
       }
 
-      // Créer la session de paiement
+      // Si l'utilisateur est connecté et est le créateur, vérifier la configuration Stripe
+      if (currentUser?.uid === event.userId && !currentUser.stripeAccountId) {
+        setStripeLoadingMessage('Configuration du compte de paiement...');
+        const { accountLink } = await createStripeConnectAccount(currentUser.uid, currentUser.email);
+        window.location.href = accountLink;
+        return;
+      }
+
+      // Créer une session de paiement
       const { sessionUrl } = await createCheckoutSession(id, amountValue, message);
-      
-      // Rediriger vers Stripe Checkout
       window.location.href = sessionUrl;
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erreur lors de la création de la session de paiement:', err);
-      setError('Impossible de procéder au paiement. Veuillez réessayer.');
+      setError(err.message || 'Impossible de procéder au paiement. Veuillez réessayer.');
     } finally {
       setIsProcessing(false);
+      setStripeLoadingMessage(null);
     }
   };
 
@@ -185,9 +168,14 @@ const FundraiserDetail: React.FC = () => {
           
           <button
             onClick={handleShare}
-            className="p-2 hover:bg-teal-500 rounded-full transition-colors"
+            disabled={isSharing}
+            className="p-2 hover:bg-teal-500 rounded-full transition-colors disabled:opacity-50"
           >
-            <Share2 size={20} />
+            {isSharing ? (
+              <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-white"></div>
+            ) : (
+              <Share2 size={20} />
+            )}
           </button>
         </div>
 
